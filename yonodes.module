@@ -1,0 +1,347 @@
+<?php
+
+/**
+ * Define contstants.
+ */
+define('YONODES_CHANNEL_SECRET_KEY', trim(variable_get('yonodes_key', '')));
+define('YONODES_CHANNEL_ID', trim(variable_get('yonodes_channel_id', '')));
+define('YONODES_RECENT_AMOUNT', trim(variable_get('yonodes_recent_amount', 1)));
+
+/**
+ * Implements hook_menu().
+ */
+function yonodes_menu() {
+  $items['admin/config/media/yonodes'] = array(
+      'title' => 'Youtube Nodes',
+      'description' => 'Youtube Nodes channel fetcher',
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('yonodes_settings_form'),
+      'access arguments' => array('access youtube nodes settings'),
+      'file' => 'includes/youtube_settings.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_cron().
+ */
+function yonodes_cron() {
+  if (variable_get('yonodes_cron_enable', FALSE)) {
+    $videos_ids = _yonodes_get_videos_ids();
+    _yonodes_fetch_videos($videos_ids, YONODES_RECENT_AMOUNT);
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function yonodes_form_yonode_video_node_form_alter(&$form, &$form_state, $form_id) {
+  $form['yonodes_video_id']['#access'] = FALSE;  
+  
+  if (variable_get('yonodes_disable_edit_yonodes') == TRUE) {
+    $form['title']['#disabled'] = TRUE;
+    $form['yonodes_playlist']['#disabled'] = TRUE;
+    $form['yonodes_video_id']['#disabled'] = TRUE;
+    $form['yonodes_youtube_field']['#disabled'] = TRUE;
+    $form['yonodes_thumb_default_120_90']['#disabled'] = TRUE;
+    $form['yonodes_thumb_medium_320_180']['#disabled'] = TRUE;
+    $form['yonodes_thumb_high_480_360']['#disabled'] = TRUE;
+    $form['yonodes_thumb_standard_640_480']['#disabled'] = TRUE;
+    $form['yonodes_thumb_maxres_1280_720']['#disabled'] = TRUE;
+    $form['yonodes_video_created']['#disabled'] = TRUE;
+  }
+}
+
+/**
+ * Submit handler for videos fetch buttons.
+ */
+function _yonodes_fetch(&$form, &$form_state) {
+  $videos_ids = _yonodes_get_videos_ids();
+
+  if ($form_state['triggering_element']['#name'] == 'yonodes_whole_channel_fetch') {
+    _yonodes_fetch_videos($videos_ids, 50);
+  }
+
+  if ($form_state['triggering_element']['#name'] == 'yonodes_last_channel_fetch') {
+    _yonodes_fetch_videos($videos_ids, YONODES_RECENT_AMOUNT);
+  }
+}
+
+/*
+ * Callback for Fetch all playlists button.
+ * It fetchs all or new playlists from Youtube channel.
+ */
+
+function _yonodes_fetch_playlists() {
+  // Do YouTube API request to retireve IDs from channel.
+  $playlists = _yonodes_playlists_api_request();
+
+  // Get existed YouTube playlists IDs from texonomy terms.
+  $vocab = taxonomy_vocabulary_machine_name_load('yonodes_playlists');
+  $playlists_ids = _yonodes_get_playlists_ids($vocab);
+
+  $new_terms_counter = 0;
+  $detailed_report = variable_get('yonodes_detailed_report');
+
+  foreach ($playlists as $playlist) {
+    if (!in_array($playlist->id, $playlists_ids)) {
+
+      $new_term = (object) array(
+        'name' => $playlist->snippet->title,
+        'description' => $playlist->snippet->description,
+        'vid' => $vocab->vid,
+        'yonodes_playlist_id' => array(
+            'und' => array(
+                '0' => array(
+                    'value' => $playlist->id,
+                ),
+            ),
+        ),
+      );
+
+      taxonomy_term_save($new_term);
+
+      $new_terms_counter++;
+      if ($detailed_report == TRUE) {
+        watchdog('YouTube Nodes', 'New term "' . $new_term->name . '" was'
+          . ' created in YouTube Channel Playlists vocabulary.');
+      }
+    }
+  }
+
+  watchdog('YouTube Nodes', $new_terms_counter . ' new terms was added to '
+    . 'YouTube Channel Playlists vocabulary.');
+  drupal_set_message($new_terms_counter . t(' new youtube playlists were'
+    . ' created.'), 'warning');
+}
+
+function _yonodes_get_playlists_ids($vocab) {
+  $playlists_ids = array();
+  $terms_tree = taxonomy_get_tree($vocab->vid);
+
+  foreach ($terms_tree as $term) {
+    $loaded_term = taxonomy_term_load($term->tid);
+    $playlists_ids[$term->tid] = $loaded_term->yonodes_playlist_id[LANGUAGE_NONE][0]['value'];
+  }
+
+  return $playlists_ids;
+}
+
+function _yonodes_playlists_api_request($token = '') {
+  $result = drupal_http_request(
+    'https://www.googleapis.com/youtube/v3/playlists?part=snippet&channelId=' .
+    YONODES_CHANNEL_ID .
+    '&key=' . YONODES_CHANNEL_SECRET_KEY .
+    '&maxResults=' . 50 .
+    '&pageToken=' . $token .
+    '&order=date'
+  );
+
+  $result_data = json_decode($result->data);
+  $playlists = $result_data->items;
+
+  if (isset($result_data->nextPageToken)) {
+    $playlist_next_page = yonodes_playlists_api_request($result_data->nextPageToken);
+    $playlists = array_merge($playlists, $playlist_next_page);
+  }
+
+  return $playlists;
+}
+
+function _yonodes_fetch_videos($videos_ids, $max_results) {
+  // Get existed YouTube playlists IDs from texonomy terms.
+  $vocab = taxonomy_vocabulary_machine_name_load('yonodes_playlists');
+  $playlists_ids = _yonodes_get_playlists_ids($vocab);
+
+  if (empty($playlists_ids)) {
+    drupal_set_message(t('Please fetch all playlists before updating YouTube'
+      . ' Videos.'), 'error');
+  } else {
+    $field_youtube_link = variable_get('yonodes_create_youtube_link_field');
+    $field_default = variable_get('yonodes_thumb_default');
+    $field_medium = variable_get('yonodes_thumb_medium');
+    $field_high = variable_get('yonodes_thumb_high');
+    $field_standard = variable_get('yonodes_thumb_standard');
+    $field_maxres = variable_get('yonodes_thumb_maxres');
+    $detailed_report = variable_get('yonodes_detailed_report');
+
+    $new_nodes_counter = 0;
+    $existed_nodes_counter = 0;
+
+    foreach ($playlists_ids as $playlist_id) {
+      $videos = _yonodes_videos_api_request($playlist_id, $max_results);
+
+      foreach ($videos as $item) {
+        if (!in_array($item->snippet->resourceId->videoId, $videos_ids)) {
+          // For unexisted nodes.
+          $taxonomy_term = array_search($item->snippet->playlistId, $playlists_ids);
+          $node = new stdClass();
+          $node->type = "yonode_video";
+          node_object_prepare($node);
+
+          $node->title = $item->snippet->title;
+          $node->language = LANGUAGE_NONE;
+          $node->uid = 1;
+
+          $node->yonodes_playlist[$node->language][0]['tid'] = $taxonomy_term;
+          $node->yonodes_video_id[$node->language][0]['value'] = $item->snippet->resourceId->videoId;
+
+          if ($field_youtube_link == TRUE) {
+            $node->yonodes_youtube_field[$node->language][0]['input'] =
+                    'http://www.youtube.com/watch?v=' . $item->snippet->resourceId->videoId;
+            $node->yonodes_youtube_field[$node->language][0]['video_id'] =
+                    $item->snippet->resourceId->videoId;
+          }
+
+          $node->yonodes_video_created[$node->language][0]['value'] =
+                  strtotime($item->snippet->publishedAt);
+
+          if (isset($item->snippet->thumbnails->default->url) && $field_default == TRUE) {
+            $node->yonodes_thumb_default_120_90[$node->language][0]['value'] =
+                    $item->snippet->thumbnails->default->url;
+          }
+
+          if (isset($item->snippet->thumbnails->medium->url) && $field_medium == TRUE) {
+            $node->yonodes_thumb_medium_320_180[$node->language][0]['value'] =
+                    $item->snippet->thumbnails->medium->url;
+          }
+
+          if (isset($item->snippet->thumbnails->high->url) && $field_high == TRUE) {
+            $node->yonodes_thumb_high_480_360[$node->language][0]['value'] =
+                    $item->snippet->thumbnails->high->url;
+          }
+
+          if (isset($item->snippet->thumbnails->standard->url) && $field_standard == TRUE) {
+            $node->yonodes_thumb_standard_640_480[$node->language][0]['value'] =
+                    $item->snippet->thumbnails->standard->url;
+          }
+
+          if (isset($item->snippet->thumbnails->maxres->url) && $field_maxres == TRUE) {
+            $node->yonodes_thumb_maxres_1280_720[$node->language][0]['value'] =
+                    $item->snippet->thumbnails->maxres->url;
+          }
+
+          if ($node = node_submit($node)) { // Prepare node for saving
+            node_save($node);
+          }
+
+          $new_nodes_counter++;
+
+          if ($detailed_report == TRUE) {
+            watchdog('YouTube Nodes', 'New YouTube Node - ' . $node->title . ' - was created.');
+          }
+        } elseif (in_array($item->snippet->resourceId->videoId, $videos_ids)) {
+          // For existed nodes.
+          $nid = array_search($item->snippet->resourceId->videoId, $videos_ids);
+
+          $node = node_load($nid);
+
+          $updated = FALSE;
+
+          if ($node->title !== $item->snippet->title) {
+            $node->title = $item->snippet->title;
+            $updated = TRUE;
+          }          
+
+          if (($field_youtube_link == TRUE) && 
+                  ($node->yonodes_youtube_field[$node->language][0]['video_id'] !== $item->snippet->resourceId->videoId)) {
+            $node->yonodes_youtube_field[$node->language][0]['input'] =
+                    'http://www.youtube.com/watch?v=' . $item->snippet->resourceId->videoId;
+            $node->yonodes_youtube_field[$node->language][0]['video_id'] =
+                    $item->snippet->resourceId->videoId;
+            $updated = TRUE;
+          }
+          
+          if (isset($item->snippet->thumbnails->default->url) && $field_default == TRUE &&
+                  (!isset($node->yonodes_thumb_default_120_90[$node->language][0]['value']) ||
+                  ($node->yonodes_thumb_default_120_90[$node->language][0]['value'] !== $item->snippet->thumbnails->default->url))) {
+            $node->yonodes_thumb_default_120_90[$node->language][0]['value'] = $item->snippet->thumbnails->default->url;
+            $updated = TRUE; 
+          }
+          
+          if (isset($item->snippet->thumbnails->medium->url) && $field_medium == TRUE &&
+                  (!isset($node->yonodes_thumb_medium_320_180[$node->language][0]['value']) ||
+                  ($node->yonodes_thumb_medium_320_180[$node->language][0]['value'] !== $item->snippet->thumbnails->medium->url))) {
+            $node->yonodes_thumb_medium_320_180[$node->language][0]['value'] = $item->snippet->thumbnails->medium->url;
+            $updated = TRUE;
+          }
+
+          if (isset($item->snippet->thumbnails->high->url) && $field_high == TRUE &&
+                  (!isset($node->yonodes_thumb_high_480_360[$node->language][0]['value']) ||
+                  ($node->yonodes_thumb_high_480_360[$node->language][0]['value'] !== $item->snippet->thumbnails->high->url))) {
+            $node->yonodes_thumb_high_480_360[$node->language][0]['value'] = $item->snippet->thumbnails->high->url;
+            $updated = TRUE;
+          }
+
+          if (isset($item->snippet->thumbnails->standard->url) && $field_standard == TRUE &&
+                  (!isset($node->yonodes_thumb_standard_640_480[$node->language][0]['value']) ||
+                  ($node->yonodes_thumb_standard_640_480[$node->language][0]['value'] !== $item->snippet->thumbnails->standard->url))) {
+            $node->yonodes_thumb_standard_640_480[$node->language][0]['value'] = $item->snippet->thumbnails->standard->url;
+            $updated = TRUE;
+          }
+
+          if (isset($item->snippet->thumbnails->maxres->url) && $field_maxres == TRUE &&
+                  (!isset($node->yonodes_thumb_maxres_1280_720[$node->language][0]['value']) ||
+                  ($node->yonodes_thumb_maxres_1280_720[$node->language][0]['value'] !== $item->snippet->thumbnails->maxres->url))) {
+            $node->yonodes_thumb_maxres_1280_720[$node->language][0]['value'] = $item->snippet->thumbnails->maxres->url;
+            $updated = TRUE;
+          }
+          
+          if ($updated) {
+            node_save($node);
+            $existed_nodes_counter++;
+          }
+          
+        } else {
+          continue;
+        }
+      }
+    }
+
+    watchdog('YouTube Nodes', $new_nodes_counter . ' new YouTube Nodes was created.');
+    watchdog('YouTube Nodes', $existed_nodes_counter . ' YouTube Nodes was updated.');
+    drupal_set_message($new_nodes_counter . ' new YouTube Nodes was created.', 'warning');
+    drupal_set_message($existed_nodes_counter . ' YouTube Nodes was updated.', 'warning');
+  }
+}
+
+/*
+ *  Get nids of all existing YouTube Video nodes.
+ */
+
+function _yonodes_get_videos_ids() {
+  $yonodes = node_load_multiple(array(), array('type' => 'yonode_video'));
+  $video_ids = array();
+
+  if ($yonodes != FALSE) {
+    foreach ($yonodes as $nid => $node) {
+      $video_ids[$nid] = $node->yonodes_video_id[LANGUAGE_NONE][0]['value'];
+    }
+  }
+
+  return $video_ids;
+}
+
+/*
+ * Make request to YouTube API to retrieve videos data.
+ */
+
+function _yonodes_videos_api_request($playlist_id, $max_results, $token = '') {
+  $result = drupal_http_request('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=' .
+          $playlist_id .
+          '&key=' . YONODES_CHANNEL_SECRET_KEY .
+          '&maxResults=' . $max_results .
+          '&pageToken=' . $token .
+          '&order=date'); // Make request
+  $result_data = json_decode($result->data);
+
+  $videos = $result_data->items;
+
+  if (($max_results > 49) && isset($result_data->nextPageToken)) {
+    $videos_next_page = _yonodes_videos_api_request($playlist_id, $max_results, $result_data->nextPageToken);
+    $videos = array_merge($videos, $videos_next_page);
+  }
+
+  return $videos;
+}

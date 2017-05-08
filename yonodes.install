@@ -1,0 +1,336 @@
+<?php
+
+/**
+ * @file
+ * Variable API module install file.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function yonodes_install() {
+  yonodes_install_create_taxonomy();
+  yonodes_install_create_content_type();
+}
+
+function yonodes_install_create_taxonomy() {
+
+  // Creating taxonomy vocavulary.
+  $new_vocab = (object) array(
+        'name' => 'YouTube Channel Playlists',
+        'description' => t('Playlists from YouTube channel as terms'),
+        'machine_name' => 'yonodes_playlists',
+  );
+
+  taxonomy_vocabulary_save($new_vocab);
+
+  // Create ID field in yonodes_playlists vocabulary
+  $field = array(
+    'field_name' => 'yonodes_playlist_id',
+    'type' => 'text',
+    'label' => t('Playlist ID'),
+  );
+
+  field_create_field($field);
+
+  // Attach the field to our taxonomy entity yonodes_playlists.
+  $instance = array(
+    'field_name' => 'yonodes_playlist_id',
+    'entity_type' => 'taxonomy_term',
+    'bundle' => 'yonodes_playlists',
+    'label' => t('Playlist ID'),
+    'description' => t('Unique ID'),
+    'required' => true,
+    'widget' => array(
+      'type' => 'text_textfield',
+      'weight' => 3
+    )
+  );
+
+  field_create_instance($instance);
+}
+
+function yonodes_install_create_content_type() {
+
+  $node = array(
+    'type' => 'yonode_video',
+    'name' => t('YouTube Video'),
+    'base' => 'node_content',
+    'description' => t('YouTube Video'),
+    'title_label' => t('Title'),
+    'custom' => TRUE
+  );
+
+  $content_type = node_type_set_defaults($node);
+  node_type_save($content_type);
+
+  // Create a taxonomy field  in yonode_video node 
+  // and use the taxonomy entity we created earlier.
+  $field = array(
+    'field_name' => 'yonodes_playlist',
+    'type' => 'taxonomy_term_reference',
+    'label' => t('Youtube Playlist'),
+    'settings' => array(
+      'allowed_values' => array(
+        array(
+          'vocabulary' => 'yonodes_playlists',
+          'parent' => 0
+        )
+      )
+    )
+  );
+  field_create_field($field);
+
+  // Add the field to the content type as a HTML select box.
+  $instance = array(
+    'field_name' => 'yonodes_playlist',
+    'entity_type' => 'node',
+    'bundle' => 'yonode_video',
+    'label' => t('Youtube Playlist'),
+    'description' => t('Playlist Category'),
+    'required' => TRUE,
+    'widget' => array(
+      'type' => 'options_select',
+      'weight' => 3,
+    )
+  );
+  field_create_instance($instance);
+
+
+  // Create ID field in yonode_video node.
+  $field = array(
+    'field_name' => 'yonodes_video_id',
+    'type' => 'text',
+    'label' => t('Video ID'),
+  );
+
+  field_create_field($field);
+
+  // Attach the field to our node.
+  $instance = array(
+    'field_name' => 'yonodes_video_id',
+    'entity_type' => 'node',
+    'bundle' => 'yonode_video',
+    'label' => t('Video ID'),
+    'description' => t('Unique Video ID'),
+    'required' => false,
+    'widget' => array(
+      'type' => 'text_textfield',
+      'weight' => 4
+    )
+  );
+
+  field_create_instance($instance);
+
+  // Create youtube field in yonode_video node.
+  $field = array(
+    'field_name' => 'yonodes_youtube_field',
+    'type' => 'youtube',
+    'label' => t('Youtube Link'),
+  );
+
+  field_create_field($field);
+
+  // Attach the field to our node.
+  $instance = array(
+    'field_name' => 'yonodes_youtube_field',
+    'entity_type' => 'node',
+    'bundle' => 'yonode_video',
+    'label' => t('Youtube Link'),
+    'description' => t('Youtube Link'),
+    'required' => false,
+    'widget' => array(
+      'type' => 'youtube',
+      'weight' => 5
+    )
+  );
+
+  field_create_instance($instance);
+  
+  // Create youtube field in yonode_video node.
+  $field = array(
+    'field_name' => 'yonodes_thumb_default_120_90',
+    'type' => 'text',
+    'label' => t('Thumbnail Default 120*90'),
+  );
+
+  field_create_field($field);
+
+  // Attach the field to our node.
+  $instance = array(
+    'field_name' => 'yonodes_thumb_default_120_90',
+    'entity_type' => 'node',
+    'bundle' => 'yonode_video',
+    'label' => t('Thumbnail Default 120*90'),
+    'description' => t('Thumbnail Default 120*90'),
+    'required' => false,
+    'widget' => array(
+      'type' => 'text',
+      'weight' => 10
+    )
+  );
+
+  field_create_instance($instance);
+  
+  // Create youtube field in yonode_video node.
+  $field = array(
+    'field_name' => 'yonodes_thumb_medium_320_180',
+    'type' => 'text',
+    'label' => t('Thumbnail Medium 320*180'),
+  );
+
+  field_create_field($field);
+
+  // Attach the field to our node.
+  $instance = array(
+    'field_name' => 'yonodes_thumb_medium_320_180',
+    'entity_type' => 'node',
+    'bundle' => 'yonode_video',
+    'label' => t('Thumbnail Medium 320*180'),
+    'description' => t('Thumbnail Medium 320*180'),
+    'required' => false,
+    'widget' => array(
+      'type' => 'text',
+      'weight' => 14
+    )
+  );
+
+  field_create_instance($instance);
+
+  // Create youtube field in yonode_video node.
+  $field = array(
+    'field_name' => 'yonodes_thumb_high_480_360',
+    'type' => 'text',
+    'label' => t('Thumbnail High 480*360'),
+  );
+
+  field_create_field($field);
+
+  // Attach the field to our node.
+  $instance = array(
+    'field_name' => 'yonodes_thumb_high_480_360',
+    'entity_type' => 'node',
+    'bundle' => 'yonode_video',
+    'label' => t('Thumbnail High 480*360'),
+    'description' => t('Thumbnail High 480*360'),
+    'required' => false,
+    'widget' => array(
+      'type' => 'text',
+      'weight' => 16
+    )
+  );
+
+  field_create_instance($instance);
+
+  // Create youtube field in yonode_video node.
+  $field = array(
+    'field_name' => 'yonodes_thumb_standard_640_480',
+    'type' => 'text',
+    'label' => t('Thumbnail Standard 640*480'),
+  );
+
+  field_create_field($field);
+
+  // Attach the field to our node.
+  $instance = array(
+    'field_name' => 'yonodes_thumb_standard_640_480',
+    'entity_type' => 'node',
+    'bundle' => 'yonode_video',
+    'label' => t('Thumbnail Standard 640*480'),
+    'description' => t('Thumbnail Standard 640*480'),
+    'required' => false,
+    'widget' => array(
+      'type' => 'text',
+      'weight' => 20
+    )
+  );
+
+  field_create_instance($instance);
+
+  // Create youtube field in yonode_video node.
+  $field = array(
+    'field_name' => 'yonodes_thumb_maxres_1280_720',
+    'type' => 'text',
+    'label' => t('Thumbnail Maxres 1280*720'),
+  );
+
+  field_create_field($field);
+
+  // Attach the field to our node.
+  $instance = array(
+    'field_name' => 'yonodes_thumb_maxres_1280_720',
+    'entity_type' => 'node',
+    'bundle' => 'yonode_video',
+    'label' => t('Thumbnail Maxres 1280*720'),
+    'description' => t('Thumbnail Maxres 1280*720'),
+    'required' => false,
+    'widget' => array(
+      'type' => 'text',
+      'weight' => 22
+    )
+  );
+
+  field_create_instance($instance);
+  
+  // Create youtube field in yonode_video node.
+  $field = array(
+    'field_name' => 'yonodes_video_created',
+    'type' => 'text',
+    'label' => t('Youtube origin creation date'),
+  );
+
+  field_create_field($field);
+
+  // Attach the field to our node
+  $instance = array(
+    'field_name' => 'yonodes_video_created',
+    'entity_type' => 'node',
+    'bundle' => 'yonode_video',
+    'label' => t('Youtube origin creation date'),
+    'description' => t('Youtube origin creation date'),
+    'required' => false,
+    'widget' => array(
+      'type' => 'text',
+      'weight' => 26
+    )
+  );
+
+  field_create_instance($instance);
+}
+
+function yonodes_uninstall() {
+  // Variables.
+  variable_del('yonodes_key');
+  variable_del('yonodes_channel_id');
+  variable_del('yonodes_cron_enable');
+  variable_del('yonodes_disable_edit_yonodes');
+  variable_del('yonodes_create_youtube_link_field');
+  variable_del('yonodes_detailed_report');
+  variable_del('yonodes_recent_amount');
+  variable_del('yonodes_thumb_default');
+  variable_del('yonodes_thumb_medium');
+  variable_del('yonodes_thumb_high');
+  variable_del('yonodes_thumb_standard');
+  variable_del('yonodes_thumb_maxres');
+
+  // Vocabulary.
+  $voc = taxonomy_vocabulary_machine_name_load('yonodes_playlists');
+  taxonomy_vocabulary_delete($voc->vid);
+
+  // Content.
+  $nodes = node_load_multiple(array(), array('type' => 'yonode_video'));
+  $nids = array_keys($nodes);
+  node_delete_multiple($nids);
+
+  // Content type.
+  field_delete_field('yonodes_playlist_id');
+  field_delete_field('yonodes_video_id');
+  field_delete_field('yonodes_youtube_field');
+  field_delete_field('yonodes_playlist');
+  field_delete_field('yonodes_thumb_default_120_90');
+  field_delete_field('yonodes_thumb_medium_320_180');
+  field_delete_field('yonodes_thumb_high_480_360');
+  field_delete_field('yonodes_thumb_standard_640_480');
+  field_delete_field('yonodes_thumb_maxres_1280_720'); 
+  node_type_delete('yonode_video');
+}

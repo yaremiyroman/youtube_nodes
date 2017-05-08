@@ -1,0 +1,9 @@
+name = Youtube Nodes
+description = "Fetch youtube channel in nodes based on playlists as terms."
+core = 7.x
+package = Media
+
+dependencies[] = youtube
+
+configure = admin/config/media/yonodes
+
